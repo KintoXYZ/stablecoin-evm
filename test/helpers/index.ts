@@ -26,6 +26,7 @@ import {
   FiatTokenV2_1Instance,
   FiatTokenV2_2Instance,
   FiatTokenV2Instance,
+  FiatTokenCeloV2_2Instance,
 } from "../../@types/generated";
 import _ from "lodash";
 
@@ -140,7 +141,8 @@ export async function initializeToVersion(
     | FiatTokenV1_1Instance
     | FiatTokenV2Instance
     | FiatTokenV2_1Instance
-    | FiatTokenV2_2Instance,
+    | FiatTokenV2_2Instance
+    | FiatTokenCeloV2_2Instance,
   version: "1" | "1.1" | "2" | "2.1" | "2.2",
   fiatTokenOwner: string,
   lostAndFound: string,
@@ -148,7 +150,7 @@ export async function initializeToVersion(
 ): Promise<void> {
   const proxyAsV1 = await FiatTokenV1.at(proxyOrImplementation.address);
   await proxyAsV1.initialize(
-    "USD Coin",
+    "USDC",
     "USDC",
     "USD",
     6,
@@ -160,7 +162,7 @@ export async function initializeToVersion(
 
   if (version >= "2") {
     const proxyAsV2 = await FiatTokenV2.at(proxyOrImplementation.address);
-    await proxyAsV2.initializeV2("USD Coin", {
+    await proxyAsV2.initializeV2("USDC", {
       from: fiatTokenOwner,
     });
   }
