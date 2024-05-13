@@ -81,7 +81,6 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
     function setUp() public {
         // Kinto variables
         deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        kintoWallet = vm.envAddress("KINTO_WALLET");
         entryPoint = IEntryPoint(vm.envAddress("ENTRYPOINT"));
         factory = IKintoWalletFactory(vm.envAddress("KINTO_WALLET_FACTORY"));
 
@@ -92,8 +91,8 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
 
         impl = vm.envOr("FIAT_TOKEN_IMPLEMENTATION_ADDRESS", address(0));
         masterMinterOwner = vm.envAddress("MASTER_MINTER_OWNER_ADDRESS");
-        proxyAdmin = vm.envAddress("PROXY_ADMIN_ADDRESS");
-        owner = vm.envAddress("OWNER_ADDRESS");
+        proxyAdmin = vm.envAddress("PROXY_ADMIN_ADDRESS"); // KintoWallet-USDC-proxy-admin
+        owner = vm.envAddress("OWNER_ADDRESS"); // KintoWallet-admin
 
         // Ensure that the proxy admin and owner addresses are different
         // because we are using AdmingUpgradeabilityProxy and the address used as admin there
@@ -175,7 +174,7 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
             handleOps(
                 selectorAndParams,
                 address(proxy),
-                kintoWallet,
+                owner, // we use KintoWallet-admin to change the admin to KintoWallet-USDC-proxy-admin
                 deployerPrivateKey
             );
         } else {
@@ -200,7 +199,7 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
         handleOps(
             selectorAndParams,
             address(proxyAsV2_2),
-            kintoWallet,
+            owner,
             deployerPrivateKey
         );
 
@@ -212,7 +211,7 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
         handleOps(
             selectorAndParams,
             address(proxyAsV2_2),
-            kintoWallet,
+            owner,
             deployerPrivateKey
         );
 
@@ -224,7 +223,7 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
         handleOps(
             selectorAndParams,
             address(proxyAsV2_2),
-            kintoWallet,
+            owner,
             deployerPrivateKey
         );
 
@@ -237,7 +236,7 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
         handleOps(
             selectorAndParams,
             address(proxyAsV2_2),
-            kintoWallet,
+            owner,
             deployerPrivateKey
         );
 
@@ -282,6 +281,9 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
             "masterMinter mismatch"
         );
 
+        // make sure proxy contract's admin is set to the correct address
+        require(proxy.admin() == proxyAdmin, "admin mismatch");
+
         return (fiatTokenV2_2, masterMinter, proxy);
     }
 
@@ -316,8 +318,17 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
     function deployDeployer() internal {
         // deploy KintoDeployer
         bytes memory bytecode = type(KintoDeployer).creationCode;
-        deployer = factory.deployContract(kintoWallet, 0, bytecode, bytes32(0));
-        whitelistApp(deployer, kintoWallet, deployerPrivateKey, true);
+        deployer = factory.getContractAddress(
+            0,
+            keccak256(abi.encodePacked(bytecode))
+        );
+        if (isContract(deployer)) {
+            console.log("KintoDeployer already deployed at %s", deployer);
+            return;
+        }
+        // Deploy the KintoDeployer contract
+        deployer = factory.deployContract(owner, 0, bytecode, bytes32(0));
+        whitelistApp(deployer, owner, deployerPrivateKey, true);
     }
 
     function deployImplementation(address _impl) internal {
@@ -327,71 +338,84 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
                 type(FiatTokenV2_2).creationCode
             );
             fiatTokenV2_2 = FiatTokenV2_2(
-                factory.deployContract(kintoWallet, 0, bytecode, bytes32(0))
+                factory.getContractAddress(
+                    0,
+                    keccak256(abi.encodePacked(bytecode))
+                )
             );
-            whitelistApp(
-                address(fiatTokenV2_2),
-                kintoWallet,
-                deployerPrivateKey,
-                true
-            );
+            if (isContract(address(fiatTokenV2_2))) {
+                console.log(
+                    "FiatTokenV2_2 already deployed at %s",
+                    address(fiatTokenV2_2)
+                );
+            } else {
+                fiatTokenV2_2 = FiatTokenV2_2(
+                    factory.deployContract(owner, 0, bytecode, bytes32(0))
+                );
+                whitelistApp(
+                    address(fiatTokenV2_2),
+                    owner,
+                    deployerPrivateKey,
+                    true
+                );
 
-            // Initializing the implementation contract with dummy values here prevents
-            // the contract from being reinitialized later on with different values.
-            // Dummy values can be used here as the proxy contract will store the actual values
-            // for the deployed token.
+                // Initializing the implementation contract with dummy values here prevents
+                // the contract from being reinitialized later on with different values.
+                // Dummy values can be used here as the proxy contract will store the actual values
+                // for the deployed token.
 
-            bytes memory selectorAndParams = abi.encodeWithSelector(
-                FiatTokenV1.initialize.selector,
-                "",
-                "",
-                "",
-                0,
-                THROWAWAY_ADDRESS,
-                THROWAWAY_ADDRESS,
-                THROWAWAY_ADDRESS,
-                THROWAWAY_ADDRESS
-            );
-            handleOps(
-                selectorAndParams,
-                address(fiatTokenV2_2),
-                kintoWallet,
-                deployerPrivateKey
-            );
+                bytes memory selectorAndParams = abi.encodeWithSelector(
+                    FiatTokenV1.initialize.selector,
+                    "",
+                    "",
+                    "",
+                    0,
+                    THROWAWAY_ADDRESS,
+                    THROWAWAY_ADDRESS,
+                    THROWAWAY_ADDRESS,
+                    THROWAWAY_ADDRESS
+                );
+                handleOps(
+                    selectorAndParams,
+                    address(fiatTokenV2_2),
+                    owner,
+                    deployerPrivateKey
+                );
 
-            selectorAndParams = abi.encodeWithSelector(
-                FiatTokenV2.initializeV2.selector,
-                ""
-            );
-            handleOps(
-                selectorAndParams,
-                address(fiatTokenV2_2),
-                kintoWallet,
-                deployerPrivateKey
-            );
+                selectorAndParams = abi.encodeWithSelector(
+                    FiatTokenV2.initializeV2.selector,
+                    ""
+                );
+                handleOps(
+                    selectorAndParams,
+                    address(fiatTokenV2_2),
+                    owner,
+                    deployerPrivateKey
+                );
 
-            selectorAndParams = abi.encodeWithSelector(
-                FiatTokenV2_1.initializeV2_1.selector,
-                THROWAWAY_ADDRESS
-            );
-            handleOps(
-                selectorAndParams,
-                address(fiatTokenV2_2),
-                kintoWallet,
-                deployerPrivateKey
-            );
+                selectorAndParams = abi.encodeWithSelector(
+                    FiatTokenV2_1.initializeV2_1.selector,
+                    THROWAWAY_ADDRESS
+                );
+                handleOps(
+                    selectorAndParams,
+                    address(fiatTokenV2_2),
+                    owner,
+                    deployerPrivateKey
+                );
 
-            selectorAndParams = abi.encodeWithSelector(
-                FiatTokenV2_2.initializeV2_2.selector,
-                new address[](0),
-                ""
-            );
-            handleOps(
-                selectorAndParams,
-                address(fiatTokenV2_2),
-                kintoWallet,
-                deployerPrivateKey
-            );
+                selectorAndParams = abi.encodeWithSelector(
+                    FiatTokenV2_2.initializeV2_2.selector,
+                    new address[](0),
+                    ""
+                );
+                handleOps(
+                    selectorAndParams,
+                    address(fiatTokenV2_2),
+                    owner,
+                    deployerPrivateKey
+                );
+            }
         } else {
             fiatTokenV2_2 = FiatTokenV2_2(_impl);
         }
@@ -415,21 +439,24 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
                 )
             )
         );
+        if (isContract(address(proxy))) {
+            console.log("USDC-proxy already deployed at %s", address(proxy));
+        } else {
+            // generate bytecode to deploy contract
+            bytes memory selectorAndParams = abi.encodeWithSelector(
+                KintoDeployer.deploy.selector,
+                proxyAdmin, // new admin for the proxy
+                bytecode, // USDC proxy bytecode
+                0 // salt
+            );
 
-        // generate bytecode to deploy contract
-        bytes memory selectorAndParams = abi.encodeWithSelector(
-            KintoDeployer.deploy.selector,
-            proxyAdmin, // new admin for the proxy
-            bytecode, // USDC proxy bytecode
-            0 // salt
-        );
-
-        handleOps(selectorAndParams, deployer, kintoWallet, deployerPrivateKey);
+            handleOps(selectorAndParams, deployer, owner, deployerPrivateKey);
+        }
 
         require(FiatTokenProxy(proxy).admin() == proxyAdmin, "admin mismatch");
 
         // whitelist proxy
-        whitelistApp(address(proxy), kintoWallet, deployerPrivateKey, true);
+        whitelistApp(address(proxy), owner, deployerPrivateKey, true);
 
         console.log("USDC-proxy", address(proxy));
     }
@@ -440,8 +467,20 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
             abi.encode(address(proxy))
         );
         masterMinter = MasterMinter(
-            factory.deployContract(kintoWallet, 0, bytecode, bytes32(0))
+            factory.getContractAddress(0, keccak256(abi.encodePacked(bytecode)))
         );
+        if (isContract(address(masterMinter))) {
+            console.log(
+                "MasterMinter already deployed at %s",
+                address(masterMinter)
+            );
+        } else {
+            masterMinter = MasterMinter(
+                factory.deployContract(owner, 0, bytecode, bytes32(0))
+            );
+        }
+
+        whitelistApp(address(masterMinter), owner, deployerPrivateKey, true);
 
         // Change the master minter to be owned by the master minter owner
         bytes memory selectorAndParams = abi.encodeWithSelector(
@@ -451,14 +490,9 @@ contract DeployFiatToken is Script, DeployImpl, UserOp {
         handleOps(
             selectorAndParams,
             address(masterMinter),
-            kintoWallet,
+            owner,
             deployerPrivateKey
         );
-        whitelistApp(
-            address(masterMinter),
-            kintoWallet,
-            deployerPrivateKey,
-            true
-        );
+        whitelistApp(address(masterMinter), owner, deployerPrivateKey, true);
     }
 }

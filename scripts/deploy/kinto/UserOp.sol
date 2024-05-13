@@ -19,6 +19,11 @@ interface IKintoWalletFactory {
         address recoverer,
         bytes32 salt
     ) external returns (IKintoWallet ret);
+
+    function getContractAddress(bytes32 salt, bytes32 byteCodeHash)
+        external
+        view
+        returns (address);
 }
 
 interface IEntryPoint {
@@ -52,8 +57,6 @@ interface IKintoWallet {
 }
 
 abstract contract UserOp is Test {
-    uint256 constant SECP256K1_MAX_PRIVATE_KEY = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
-
     // gas constants
     uint256 constant CALL_GAS_LIMIT = 4_000_000;
     uint256 constant VERIFICATION_GAS_LIMIT = 210_000;
@@ -243,5 +246,13 @@ abstract contract UserOp is Test {
             id := chainid()
         }
         return id;
+    }
+
+    function isContract(address addr) public view returns (bool) {
+        uint256 size;
+        assembly {
+            size := extcodesize(addr)
+        }
+        return size > 0;
     }
 }
